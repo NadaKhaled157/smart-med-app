@@ -504,6 +504,8 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
         'endDate': Timestamp.fromDate(_endDate!),
         'prescribedBy': widget.username,
         'prescribedAt': FieldValue.serverTimestamp(),
+        'reminderFlag': false,
+        'pillTaken': false
       };
       
       print('📝 Medication data: $medicationData');
@@ -737,6 +739,8 @@ class PatientMedication {
   final List<TimeOfDay> timesOfTaking;
   final DateTime startDate;
   final DateTime endDate;
+  final bool reminderFlag;      // new
+  final bool pillTaken;         // new
   final String documentId;
 
   PatientMedication({
@@ -745,6 +749,8 @@ class PatientMedication {
     required this.timesOfTaking,
     required this.startDate,
     required this.endDate,
+    required this.reminderFlag,
+    required this.pillTaken,
     required this.documentId,
   });
 
@@ -758,6 +764,8 @@ class PatientMedication {
       timesOfTaking: times,
       startDate: (map['startDate'] as Timestamp).toDate(),
       endDate: (map['endDate'] as Timestamp).toDate(),
+      reminderFlag: map['reminderFlag'] ?? false,  // new
+      pillTaken: map['pillTaken'] ?? false,        // new
       documentId: docId,
     );
   }

@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'main.dart';
+import 'dart:async';  // For Timer
+import 'package:firebase_database/firebase_database.dart';
 
 // Medication model (same structure as doctor side)
 class Medication {
@@ -12,6 +14,8 @@ class Medication {
   final DateTime endDate;
   final String documentId;
   final String? prescribedBy;
+  final bool reminderFlag; // NEW
+  final bool pillTaken;    // NEW
 
   Medication({
     required this.name,
@@ -21,6 +25,8 @@ class Medication {
     required this.endDate,
     required this.documentId,
     this.prescribedBy,
+    this.reminderFlag = false, // default false
+    this.pillTaken = false,    // default false
   });
 
   factory Medication.fromMap(Map<String, dynamic> map, String docId) {
@@ -37,9 +43,21 @@ class Medication {
       endDate: (map['endDate'] as Timestamp).toDate(),
       documentId: docId,
       prescribedBy: map['prescribedBy'],
+      reminderFlag: map['reminderFlag'] ?? false, // NEW
+      pillTaken: map['pillTaken'] ?? false,       // NEW
     );
   }
+
+  List<DateTime> getTodaySchedules() {
+    final now = DateTime.now();
+    if (now.isBefore(startDate) || now.isAfter(endDate)) return [];
+
+    return timesOfTaking.map((time) {
+      return DateTime(now.year, now.month, now.day, time.hour, time.minute);
+    }).where((scheduled) => scheduled.isAfter(now)).toList(); // Only future times today
+  }
 }
+
 
 // Patient Medication Dashboard (Real-time + Firebase)
 class MedicationDashboard extends StatefulWidget {
@@ -58,6 +76,7 @@ class MedicationDashboard extends StatefulWidget {
 
 class _MedicationDashboardState extends State<MedicationDashboard> {
   final user = FirebaseAuth.instance.currentUser;
+  List<Timer> _reminderTimers = [];  // List to manage active timers
 
   @override
   void initState() {
@@ -76,6 +95,19 @@ class _MedicationDashboardState extends State<MedicationDashboard> {
       print('✅ MedicationDashboard: User is logged in: ${user!.uid}');
       _checkPatientDocument();
     }
+  }
+
+  @override
+  void dispose() {
+    _cancelAllTimers();  // This prevents memory leaks!
+    super.dispose();
+  }
+
+  void _cancelAllTimers() {
+    for (var timer in _reminderTimers) {
+      timer.cancel();
+    }
+    _reminderTimers.clear();
   }
 
   Future<void> _checkPatientDocument() async {
@@ -237,6 +269,7 @@ class _MedicationDashboardState extends State<MedicationDashboard> {
                   .toList();
 
               print('📦 Loaded ${meds.length} medications');
+              _scheduleReminders(meds);
 
               if (meds.isEmpty) {
                 return _buildEmptyState();
@@ -438,11 +471,18 @@ class _MedicationDashboardState extends State<MedicationDashboard> {
                   mainAxisSize: MainAxisSize.min,
                   children: todayTimes
                       .map((t) => ListTile(
-                            leading: const Icon(Icons.alarm, color: Colors.blue),
-                            title: Text(t.format(context)),
-                            trailing: const Icon(Icons.notifications_active),
-                          ))
-                      .toList(),
+                      leading: const Icon(Icons.alarm, color: Colors.blue),
+                      title: Text(t.format(context)),
+                      trailing: Icon(
+                        meds.firstWhere((m) => m.timesOfTaking.contains(t)).pillTaken
+                            ? Icons.check_circle
+                            : Icons.notifications_active,
+                        color: meds.firstWhere((m) => m.timesOfTaking.contains(t)).pillTaken
+                            ? Colors.green
+                            : Colors.blue,
+                      ),
+                    ))
+                .toList(),
                 ),
           actions: [
             TextButton(
@@ -620,4 +660,66 @@ class _MedicationDashboardState extends State<MedicationDashboard> {
       ),
     );
   }
+
+void _scheduleReminders(List<Medication> meds) {
+  _cancelAllTimers(); // cancel previous timers
+
+  final now = DateTime.now();
+
+  for (var med in meds) {
+    final schedules = med.getTodaySchedules(); // future times today
+    for (var scheduledTime in schedules) {
+      final durationUntil = scheduledTime.difference(now);
+      if (durationUntil.isNegative) continue; // skip past times
+
+      final timer = Timer(durationUntil, () async {
+        // 1️⃣ Show in-app dialog
+        _showReminderDialog(med.name, scheduledTime);
+
+        // 2️⃣ Trigger ESP reminder via Firebase
+        await sendToHardware(true);
+
+        // Optional: reset flag after 1 second so ESP can detect next reminder
+        Future.delayed(const Duration(seconds: 1), () async {
+          await sendToHardware(false);
+        });
+      });
+
+      _reminderTimers.add(timer);
+    }
+  }
+
+  print('🔔 Scheduled ${_reminderTimers.length} reminders for today');
+}
+
+void _showReminderDialog(String medName, DateTime time) {
+  if (!mounted) return;  // Avoid showing if widget is disposed
+
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Medication Reminder!'),
+      content: Text('It\'s time to take $medName at ${time.hour}:${time.minute.toString().padLeft(2, '0')}.'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
+
+}
+
+
+Future<void> sendToHardware(bool value) async {
+  try {
+    final dbRef = FirebaseDatabase.instance.ref('/pillbox/trigger/reminderFlag');
+    await dbRef.set(value);
+    print('✅ Reminder flag sent to ESP: $value');
+  } catch (e) {
+    print('❌ Failed to send reminder to ESP: $e');
+  }
+}
+
 }

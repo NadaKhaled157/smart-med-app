@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -27,12 +28,57 @@
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" href="favicon.png" />
 
   <title>smart_pill_tracker</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- firebase config (replace values) -->
+  <script>
+    // Firebase config from console
+    const firebaseConfig = {
+      apiKey: "AIzaSyAvJqMufbppiYWWGQX_NN-w13KyZpObvGc",
+      authDomain: "smart-med-box-28eb7.firebaseapp.com",
+      projectId: "smart-med-box-28eb7",
+      storageBucket: "smart-med-box-28eb7.firebasestorage.app",
+      messagingSenderId: "96250484214",
+      appId: "1:96250484214:web:9ce8dc95330453967863d7"
+    };
+    // Put it on window for service worker / other scripts
+    window._firebaseConfig = firebaseConfig;
+  </script>
+
+  <!-- Detect when PWA is installed and notify backend -->
+  <script>
+    // Fired when PWA is installed to homescreen
+    window.addEventListener('appinstalled', async (evt) => {
+      try {
+        // read token from localStorage (set by Flutter/Dart)
+        const token = localStorage.getItem('fcm_token');
+        if (!token) return;
+        // POST token to your server endpoint so backend can send a welcome push
+        await fetch('https://your-backend.example.com/register_installed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fcmToken: token, installedAt: new Date().toISOString() })
+        });
+      } catch (e) {
+        console.error('appinstalled handler error', e);
+      }
+    });
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/firebase-messaging-sw.js')
+        .then(() => console.log("Service Worker registered"));
+    }
+  </script>
+
+
 </head>
+
 <body>
   <script src="flutter_bootstrap.js" async></script>
 </body>
+
 </html>
